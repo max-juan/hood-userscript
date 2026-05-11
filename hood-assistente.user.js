@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hood Assistente de Concessao
 // @namespace    https://github.com/max-juan/hood-userscript
-// @version      0.3.1
+// @version      0.4.0
 // @description  Extrai dados do Retool da Mesa de Credito, calcula multiplicadores e gera parecer padronizado
 // @author       Max (Robbin)
 // @match        https://robbin.retool.com/*
@@ -365,17 +365,21 @@
     const style = document.createElement('style');
     style.id = 'hood-style';
     style.textContent = `
+      /* FAB ---------------------------------------------- */
       #${FAB_ID} {
         position: fixed; bottom: 30px; right: 30px;
         width: 56px; height: 56px; border-radius: 50%;
         background: linear-gradient(135deg, #f97316, #ea580c); color: white;
-        border: none; font-size: 22px; font-weight: 700; cursor: pointer;
+        border: none; font-size: 24px; font-weight: 700; cursor: pointer;
         box-shadow: 0 4px 15px rgba(249, 115, 22, 0.4); z-index: 99999;
         display: flex; align-items: center; justify-content: center;
         transition: transform .2s, box-shadow .2s;
         font-family: 'Segoe UI', sans-serif;
       }
-      #${FAB_ID}:hover { transform: scale(1.08); box-shadow: 0 6px 20px rgba(249,115,22,.55); }
+      #${FAB_ID}:hover { transform: scale(1.1); box-shadow: 0 6px 20px rgba(249,115,22,.5); }
+      #${FAB_ID}.hidden { display: none; }
+
+      /* PANEL -------------------------------------------- */
       #${PANEL_ID} {
         position: fixed; top: 0; right: 0; width: 440px; height: 100vh;
         background: #fff; box-shadow: -4px 0 25px rgba(0,0,0,.15);
@@ -386,51 +390,123 @@
       #${PANEL_ID}.open { transform: translateX(0); }
       .hood-header {
         background: linear-gradient(135deg, #f97316, #ea580c); color: white;
-        padding: 14px 18px; display: flex; align-items: center; justify-content: space-between;
+        padding: 16px 20px; display: flex; align-items: center; justify-content: space-between;
+        flex-shrink: 0;
       }
-      .hood-header h2 { font-size: 15px; margin: 0; font-weight: 600; }
+      .hood-header h2 { font-size: 16px; margin: 0; font-weight: 600; display: flex; align-items: center; gap: 8px; }
       .hood-close {
         background: rgba(255,255,255,.2); border: none; color: white;
-        width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 14px;
+        width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;
       }
-      .hood-body { flex: 1; overflow-y: auto; padding: 14px; font-size: 13px; }
+      .hood-close:hover { background: rgba(255,255,255,.3); }
+
+      /* BODY --------------------------------------------- */
+      .hood-body { flex: 1; overflow-y: auto; padding: 16px; font-size: 13px; }
+
+      /* Status bar -------------------------------------- */
+      .hood-status-bar {
+        display: flex; align-items: center; gap: 8px;
+        padding: 10px 14px; border-radius: 8px;
+        margin-bottom: 16px; font-size: 13px;
+        border: 1px solid #bbf7d0; background: #f0fdf4; color: #166534;
+      }
+      .hood-status-bar.err { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+      .hood-status-bar.warn { background: #fffbeb; border-color: #fde68a; color: #92400e; }
+      .hood-status-dot {
+        width: 8px; height: 8px; border-radius: 50%; background: #22c55e;
+        animation: hoodPulse 2s infinite;
+      }
+      .hood-status-bar.err .hood-status-dot { background: #dc2626; animation: none; }
+      .hood-status-bar.warn .hood-status-dot { background: #f59e0b; animation: none; }
+      @keyframes hoodPulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+      /* Sections / Cards -------------------------------- */
+      .hood-section { margin-bottom: 16px; }
+      .hood-sec-title {
+        font-size: 11px; text-transform: uppercase; letter-spacing: .5px;
+        color: #9ca3af; font-weight: 600; margin-bottom: 8px;
+      }
+      .hood-card {
+        background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px;
+        padding: 12px;
+      }
+      .hood-row {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 5px 0; font-size: 13px; border-bottom: 1px solid #f3f4f6;
+      }
+      .hood-row:last-child { border-bottom: none; }
+      .hood-row .l { color: #6b7280; }
+      .hood-row .v { color: #111; font-weight: 600; max-width: 60%; text-align: right; word-break: break-word; }
+      .hood-row .v.highlight { color: #f97316; }
+      .hood-row .v.green { color: #16a34a; }
+      .hood-row .v.red { color: #dc2626; }
+
+      /* Multiplicadores grid 2x2 ------------------------ */
+      .hood-mult-grid {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+      }
+      .hood-mult-item {
+        background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px;
+        padding: 10px; text-align: center;
+      }
+      .hood-mult-label {
+        font-size: 10px; text-transform: uppercase; color: #9ca3af; letter-spacing: .3px;
+      }
+      .hood-mult-value {
+        font-size: 18px; font-weight: 700; color: #111; margin: 4px 0 2px;
+      }
+      .hood-mult-calc { font-size: 10px; color: #6b7280; }
+      .hood-mult-item.best { border-color: #f97316; background: #fff7ed; }
+      .hood-mult-item.best .hood-mult-value { color: #f97316; }
+
+      /* Decisao box ------------------------------------- */
+      .hood-decision {
+        background: #fff7ed; border: 1px solid #fdba74; border-radius: 8px;
+        padding: 14px; text-align: center;
+      }
+      .hood-decision-label { font-size: 11px; color: #9a3412; text-transform: uppercase; letter-spacing: .5px; }
+      .hood-decision-value { font-size: 26px; font-weight: 700; color: #ea580c; margin: 4px 0; }
+      .hood-decision-meta { font-size: 11px; color: #9a3412; }
+
+      /* Parecer ------------------------------------------ */
+      .hood-parecer {
+        background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px;
+        padding: 14px; font-size: 12px; line-height: 1.6;
+        white-space: pre-wrap; color: #333; font-family: 'Consolas', monospace;
+        max-height: 240px; overflow-y: auto;
+      }
+
+      /* Footer / Botoes -------------------------------- */
       .hood-footer {
-        padding: 12px 14px; border-top: 1px solid #e5e7eb;
-        display: flex; flex-direction: column; gap: 6px;
+        padding: 16px; border-top: 1px solid #e5e7eb;
+        display: flex; flex-direction: column; gap: 8px; flex-shrink: 0;
       }
       .hood-btn {
         background: linear-gradient(135deg, #f97316, #ea580c); color: white;
-        border: none; padding: 10px; border-radius: 8px; font-size: 13px; font-weight: 600;
-        cursor: pointer;
+        border: none; padding: 12px; border-radius: 8px;
+        font-size: 14px; font-weight: 600; cursor: pointer;
       }
       .hood-btn:hover { opacity: .9; }
       .hood-btn-sec {
         background: white; color: #f97316; border: 2px solid #f97316;
-        padding: 8px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;
+        padding: 10px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;
+        flex: 1;
       }
-      .hood-sec-title {
-        font-size: 10px; text-transform: uppercase; letter-spacing: .5px;
-        color: #9ca3af; font-weight: 700; margin: 10px 0 4px;
+      .hood-btn-sec:hover { background: #fff7ed; }
+      .hood-btn-row { display: flex; gap: 8px; }
+
+      /* Loading / msgs --------------------------------- */
+      .hood-loading {
+        text-align: center; padding: 20px; color: #6b7280; font-size: 13px;
       }
-      .hood-card {
-        background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px;
-        padding: 10px; margin-bottom: 10px;
+      .hood-loading::before {
+        content: ''; display: inline-block;
+        width: 16px; height: 16px; border-radius: 50%;
+        border: 2px solid #f97316; border-top-color: transparent;
+        animation: hoodSpin 0.8s linear infinite;
+        vertical-align: middle; margin-right: 8px;
       }
-      .hood-row {
-        display: flex; justify-content: space-between; padding: 3px 0; font-size: 12px;
-        border-bottom: 1px solid #f3f4f6;
-      }
-      .hood-row:last-child { border: none; }
-      .hood-row .l { color: #6b7280; }
-      .hood-row .v { color: #111; font-weight: 600; max-width: 60%; text-align: right; word-break: break-word; }
-      .hood-parecer {
-        background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px;
-        padding: 12px; font-size: 12px; line-height: 1.55; white-space: pre-wrap;
-        font-family: 'Consolas', monospace;
-      }
-      .hood-status { font-size: 11px; color: #6b7280; padding: 6px 0; }
-      .hood-status.ok { color: #16a34a; }
-      .hood-status.err { color: #dc2626; }
+      @keyframes hoodSpin { to { transform: rotate(360deg); } }
     `;
     document.head.appendChild(style);
   }
@@ -451,21 +527,37 @@
     panel.id = PANEL_ID;
     panel.innerHTML = `
       <div class="hood-header">
-        <h2>🔥 Hood Assistente de Concessao</h2>
+        <h2>🔥 Hood Credit Analyst</h2>
         <button class="hood-close" title="Fechar">✕</button>
       </div>
       <div class="hood-body" id="hood-body">
-        <div class="hood-status">Clique em "Extrair da tela" para comecar.</div>
+        <div class="hood-loading">Clique em "Extrair da tela" para comecar.</div>
       </div>
       <div class="hood-footer">
-        <button class="hood-btn" id="hood-extract">🔍 Extrair da tela</button>
-        <button class="hood-btn-sec" id="hood-copy">📋 Copiar parecer</button>
+        <button class="hood-btn" id="hood-copy">📋 Copiar Parecer</button>
+        <div class="hood-btn-row">
+          <button class="hood-btn-sec" id="hood-extract">🔄 Extrair da tela</button>
+          <button class="hood-btn-sec" id="hood-config">⚙️ Config</button>
+        </div>
       </div>
     `;
     document.body.appendChild(panel);
     panel.querySelector('.hood-close').onclick = togglePanel;
     panel.querySelector('#hood-extract').onclick = onExtrair;
     panel.querySelector('#hood-copy').onclick = onCopiarParecer;
+    panel.querySelector('#hood-config').onclick = onConfig;
+  }
+
+  function onConfig() {
+    const msg = [
+      `Backend: ${BACKEND}`,
+      `Modo: ${TEM_PLACEHOLDER ? 'LOCAL (desenvolvimento)' : 'PROD (Cloudflare)'}`,
+      `Token: ${TOKEN ? 'configurado' : 'AUSENTE'}`,
+      `Versao do script: 0.4.0`,
+      '',
+      'Para reportar bugs ou sugestoes, fale com Max.',
+    ].join('\n');
+    alert(msg);
   }
 
   function togglePanel() {
@@ -515,7 +607,6 @@
 
   function gerarParecer(dados, clientePlanilha, sugestao) {
     const e = dados.empresa;
-    const m = dados.motor;
     const p = dados.parceiro;
     const s = dados.scr;
     const ancora = e.ancora || 'ANCORA';
@@ -552,13 +643,79 @@
     lines.push('Decisao:');
     if (sugestao?.limiteSugerido?.limiteFinal != null) {
       const limFinal = sugestao.limiteSugerido.limiteFinal;
-      const limComRedutor = aplicarRedutor(limFinal, sugestao.redutorGlobal || 0.65);
-      lines.push(`${fmtK(limComRedutor)}. Perfil ${sugestao.perfilTomador.tipo.replace('_', ' ')}. Bloco ${sugestao.blocoUsado?.tipo}. Apos redutor ${Math.round((sugestao.redutorGlobal || 0.65)*100)}%.`);
+      lines.push(`${fmtK(limFinal)}. Perfil ${sugestao.perfilTomador.tipo.replace('_', ' ')}. Bloco ${sugestao.blocoUsado?.tipo}. Apos redutor de ${Math.round((sugestao.redutorGlobal || 0.65)*100)}%.`);
     } else {
       lines.push('[pendente - dados insuficientes para calculo]');
     }
 
     return lines.join('\n');
+  }
+
+  // ==========================================================
+  // HELPERS DE PARSE DE VALORES PARA O MOTOR
+  // ==========================================================
+  // Converte string tipo "R$ 1.234.567,89" -> 1234567.89
+  function valorMonetarioParaNum(s) {
+    if (s == null || s === '' || s === '-') return null;
+    return parseMoedaBR(s);
+  }
+
+  // Mapeia "Malwee" / "MALWEE" / "Juntos Somos Mais" / "JS+" -> chave canonica da politica
+  function normalizarAncora(ancora) {
+    if (!ancora) return null;
+    const u = ancora.toString().toUpperCase().trim();
+    if (u.includes('CANTU')) return 'CANTU';
+    if (u.includes('JS+') || u.includes('JUNTOS') || u.includes('JSM')) return 'JSM';
+    if (u.includes('BALAROTI')) return 'BALAROTI';
+    if (u.includes('BRINOX')) return 'BRINOX';
+    if (u.includes('CHILLI')) return 'CHILLI_BEANS';
+    if (u.includes('MOURA')) return 'MOURA';
+    if (u.includes('TRUSS')) return 'TRUSS';
+    if (u.includes('MALWEE')) return 'MALWEE';
+    if (u.includes('IFOOD')) return 'IFOOD';
+    return u;
+  }
+
+  function parseCluster(s) {
+    if (s == null || s === '' || s === '-') return null;
+    const m = s.toString().match(/[0-3]/);
+    return m ? parseInt(m[0], 10) : null;
+  }
+
+  // Monta o payload para POST /parecer/sugerir a partir de dados extraidos + planilha
+  function montarPayloadMotor(dados, clientePlanilha) {
+    const ancora = normalizarAncora(dados.empresa.ancora);
+    const cluster = parseCluster(dados.motor.cluster);
+    const scrPjTotal = dados.scr?.pj?.total || 0;
+
+    // Limite parceiro: prioriza planilha > Retool
+    let limiteParceiro = null;
+    if (clientePlanilha?.encontrado && clientePlanilha.limiteParceiro != null) {
+      limiteParceiro = clientePlanilha.limiteParceiro;
+    } else if (dados.parceiro?.limite) {
+      limiteParceiro = valorMonetarioParaNum(dados.parceiro.limite);
+    }
+
+    // Compra media: prioriza planilha > Retool
+    let compraMedia = null;
+    if (clientePlanilha?.encontrado && clientePlanilha.compraMediaMensal != null) {
+      compraMedia = clientePlanilha.compraMediaMensal;
+    } else if (dados.parceiro?.compraMedia) {
+      compraMedia = valorMonetarioParaNum(dados.parceiro.compraMedia);
+    }
+
+    const faturamentoEstimado = valorMonetarioParaNum(dados.parceiro?.faturamentoSerasa) ||
+                                valorMonetarioParaNum(dados.parceiro?.faturamentoMedio) ||
+                                valorMonetarioParaNum(dados.empresa?.faturamento);
+
+    return {
+      ancora,
+      cluster,
+      scrPjTotal,
+      limiteParceiro: limiteParceiro || 0,
+      compraMedia: compraMedia || 0,
+      faturamentoEstimado: faturamentoEstimado || 0,
+    };
   }
 
   function fmtK(v) {
@@ -568,51 +725,170 @@
     return `R$ ${v}`;
   }
 
+  // ==========================================================
+  // RENDER HELPERS (UI fiel ao mockup)
+  // ==========================================================
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function renderStatusBar(tipo, msg) {
+    const cls = tipo === 'ok' ? '' : (tipo === 'err' ? 'err' : 'warn');
+    return `<div class="hood-status-bar ${cls}"><div class="hood-status-dot"></div>${escapeHtml(msg)}</div>`;
+  }
+
+  function renderDadosCard(dados, motor, clientePlanilha) {
+    const rows = [];
+    const push = (label, value, cls = '') => {
+      if (value == null || value === '' || value === '-') return;
+      rows.push(`<div class="hood-row"><span class="l">${escapeHtml(label)}</span><span class="v ${cls}">${escapeHtml(value)}</span></div>`);
+    };
+    push('Empresa', dados.empresa.nome);
+    push('CNPJ', dados.empresa.cnpj);
+    push('Âncora', dados.empresa.ancora, 'highlight');
+    push('Cluster', motor.cluster);
+    const motorCls = /aprov/i.test(motor.resultado || '') ? 'green' : (/reprov/i.test(motor.resultado || '') ? 'red' : '');
+    push('Motor', motor.resultado, motorCls);
+    push('Capital Social', dados.empresa.capitalSocial);
+    push('Regime Tributário', dados.empresa.regimeTributario);
+    push('Fundação', dados.empresa.dataFundacao);
+    push('CNAE', dados.empresa.cnae);
+    if (clientePlanilha?.encontrado) {
+      push('Cliente desde', clientePlanilha.dataPrimeiraCompra);
+      const vol = clientePlanilha.volumeCompras12m;
+      if (vol) push('Volume 12m', 'R$ ' + vol.toLocaleString('pt-BR'));
+      const cm = clientePlanilha.compraMediaMensal;
+      if (cm) push('Compra média/mês', 'R$ ' + cm.toLocaleString('pt-BR', { maximumFractionDigits: 0 }));
+      const lp = clientePlanilha.limiteParceiro;
+      if (lp) push('Limite parceiro', 'R$ ' + lp.toLocaleString('pt-BR'));
+    }
+    return `
+      <div class="hood-section">
+        <div class="hood-sec-title">📋 Dados Extraídos da Tela</div>
+        <div class="hood-card">${rows.join('')}</div>
+      </div>
+    `;
+  }
+
+  function renderMultiplicadores(sugestao) {
+    if (!sugestao || sugestao.erro) {
+      return `
+        <div class="hood-section">
+          <div class="hood-sec-title">📊 Multiplicadores de Limite</div>
+          <div class="hood-card" style="text-align:center;color:#9ca3af;font-size:12px;padding:14px">
+            ${escapeHtml(sugestao?.erro || 'Aguardando dados do motor...')}
+          </div>
+        </div>
+      `;
+    }
+    const lmax = sugestao.lmax || {};
+    const valores = {
+      'Lmax Compras': { v: lmax.lmaxCompras, calc: 'compra média × mult' },
+      'Lmax Parceiro': { v: lmax.lmaxParceiro, calc: 'limite × mult' },
+      'Lmax Faturamento': { v: lmax.lmaxFaturamento, calc: 'fatur/12 × mult' },
+      'Lmax BC': { v: lmax.lmaxBC, calc: 'SCR PJ × mult%' },
+    };
+    const maior = sugestao.limiteSugerido?.maiorLmax;
+    const itens = Object.entries(valores).map(([nome, { v, calc }]) => {
+      const ehBest = v != null && v > 0 && maior != null && Math.abs(v - maior) < 0.01;
+      return `
+        <div class="hood-mult-item ${ehBest ? 'best' : ''}">
+          <div class="hood-mult-label">${escapeHtml(nome)}</div>
+          <div class="hood-mult-value">${v != null ? fmtK(v) : '-'}</div>
+          <div class="hood-mult-calc">${escapeHtml(calc)}</div>
+        </div>
+      `;
+    }).join('');
+    return `
+      <div class="hood-section">
+        <div class="hood-sec-title">📊 Multiplicadores de Limite (calculados)</div>
+        <div class="hood-mult-grid">${itens}</div>
+      </div>
+    `;
+  }
+
+  function renderDecisao(sugestao) {
+    if (!sugestao || sugestao.limiteSugerido?.limiteFinal == null) return '';
+    const lf = sugestao.limiteSugerido.limiteFinal;
+    const perfil = sugestao.perfilTomador?.tipo?.replace('_', ' ') || '-';
+    const redutor = Math.round((sugestao.redutorGlobal || 0.65) * 100);
+    return `
+      <div class="hood-section">
+        <div class="hood-sec-title">🎯 Decisão Sugerida</div>
+        <div class="hood-decision">
+          <div class="hood-decision-label">Limite final (após redutor de ${redutor}%)</div>
+          <div class="hood-decision-value">${fmtK(lf)}</div>
+          <div class="hood-decision-meta">Perfil: ${escapeHtml(perfil)} • Bloco: ${escapeHtml(sugestao.blocoUsado?.tipo || '-')}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderParecer(parecer) {
+    return `
+      <div class="hood-section">
+        <div class="hood-sec-title">📝 Parecer Gerado</div>
+        <div class="hood-parecer">${escapeHtml(parecer)}</div>
+      </div>
+    `;
+  }
+
+  // ==========================================================
+  // ON EXTRAIR
+  // ==========================================================
   async function onExtrair() {
     const body = document.getElementById('hood-body');
-    body.innerHTML = '<div class="hood-status">Extraindo dados da tela...</div>';
+    body.innerHTML = '<div class="hood-loading">Extraindo dados da tela...</div>';
 
     const dados = extrairTudo();
     log('Dados extraidos:', dados);
 
-    let status = '<div class="hood-status ok">✓ Dados extraidos da tela.</div>';
+    let statusHtml = renderStatusBar('ok', `Página detectada: Mesa de Crédito v2`);
 
-    // Busca na planilha se ancora for Malwee/Moura/Brinox
+    // 1. Busca na planilha de clientes (se ancora aplicavel)
     let clientePlanilha = null;
     const ancoraUpper = (dados.empresa.ancora || '').toUpperCase();
     if (dados.empresa.cnpj && ['MALWEE','MOURA','BRINOX'].some(a => ancoraUpper.includes(a))) {
       try {
         const ancoraApi = ancoraUpper.includes('MALWEE') ? 'MALWEE' : ancoraUpper.includes('MOURA') ? 'MOURA' : 'BRINOX';
         clientePlanilha = await fetchBackend(`/sheets/clientes/${ancoraApi}/${encodeURIComponent(dados.empresa.cnpj)}`);
-        if (clientePlanilha.encontrado) status += `<div class="hood-status ok">✓ Cliente encontrado na planilha (${clientePlanilha.aba}).</div>`;
-        else status += `<div class="hood-status">• ${clientePlanilha.motivo || 'Nao encontrado na planilha'}.</div>`;
+        if (!clientePlanilha.encontrado) {
+          statusHtml = renderStatusBar('warn', `Cliente não está na planilha ${ancoraApi}: usando dados do Retool.`);
+        }
       } catch (err) {
-        status += `<div class="hood-status err">✗ Backend offline: ${err.message}</div>`;
+        statusHtml = renderStatusBar('err', `Backend offline: ${err.message}`);
       }
     }
 
-    // Monta UI com cards
-    let html = status;
-    html += renderCard('Empresa', dados.empresa);
-    html += renderCard('Motor', dados.motor);
-    html += renderCard('Parceiro (do Retool)', dados.parceiro);
-    if (clientePlanilha?.encontrado) {
-      html += renderCard('Planilha', {
-        Aba: clientePlanilha.aba,
-        'Data 1a compra': clientePlanilha.dataPrimeiraCompra,
-        'Volume 12m': clientePlanilha.volumeCompras12m ? 'R$ ' + clientePlanilha.volumeCompras12m.toLocaleString('pt-BR') : null,
-        'Compra media': clientePlanilha.compraMediaMensal ? 'R$ ' + clientePlanilha.compraMediaMensal.toLocaleString('pt-BR', {maximumFractionDigits: 0}) : null,
-        'Limite parceiro': clientePlanilha.limiteParceiro ? 'R$ ' + clientePlanilha.limiteParceiro.toLocaleString('pt-BR') : null,
-        'Limite desejado': clientePlanilha.limiteDesejado ? 'R$ ' + clientePlanilha.limiteDesejado.toLocaleString('pt-BR') : null,
-      });
+    // 2. Chama o motor para calcular Lmax e limite final
+    let sugestao = null;
+    try {
+      const payload = montarPayloadMotor(dados, clientePlanilha);
+      log('Payload motor:', payload);
+      if (payload.ancora && payload.cluster != null) {
+        sugestao = await fetchBackend('/parecer/sugerir', { method: 'POST', body: payload });
+        log('Sugestao motor:', sugestao);
+      } else {
+        sugestao = { erro: !payload.ancora ? 'Ancora nao identificada' : 'Cluster nao informado na tela' };
+      }
+    } catch (err) {
+      sugestao = { erro: `Erro no motor: ${err.message}` };
     }
 
-    // Parecer
-    const parecer = gerarParecer(dados, clientePlanilha, null);
+    // 3. Gera parecer (texto)
+    const parecer = gerarParecer(dados, clientePlanilha, sugestao);
     ultimoParecer = parecer;
-    html += `<div class="hood-sec-title">Parecer gerado</div><div class="hood-parecer">${parecer.replace(/</g, '&lt;')}</div>`;
 
-    body.innerHTML = html;
+    // 4. Render fiel ao mockup
+    body.innerHTML = [
+      statusHtml,
+      renderDadosCard(dados, dados.motor, clientePlanilha),
+      renderMultiplicadores(sugestao),
+      renderDecisao(sugestao),
+      renderParecer(parecer),
+    ].join('');
   }
 
   function onCopiarParecer() {
