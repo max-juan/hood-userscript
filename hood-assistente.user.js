@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hood Assistente de Concessao
 // @namespace    https://github.com/max-juan/hood-userscript
-// @version      0.4.7
+// @version      0.4.8
 // @description  Extrai dados do Retool da Mesa de Credito, calcula multiplicadores e gera parecer padronizado
 // @author       Max (Robbin)
 // @match        https://robbin.retool.com/*
@@ -233,6 +233,61 @@
     return empresas;
   }
 
+  // Extrai a tabela de socios (QSA). Testid: applicationsTable2--0
+  // Cabecalho: CPF/CNPJ | NOME/RAZAO SOCIAL | PARTICIPACAO | IDADE | SOLICITANTE
+  function extrairSocios() {
+    const el = qs('[data-testid="applicationsTable2--0"]');
+    if (!el) return [];
+    const linhas = (el.innerText || '').split('\n').map(s => s.trim()).filter(Boolean);
+    const idxResults = linhas.findIndex(l => /^\d+\s*results?$/i.test(l));
+    const fim = idxResults !== -1 ? idxResults : linhas.length;
+
+    // Header esperado nas primeiras 5 linhas
+    const idxHeader = linhas.findIndex(l => /^CPF\/CNPJ$/i.test(l));
+    if (idxHeader === -1) return [];
+
+    // Coluna de cada campo (a partir do header)
+    const colunas = [];
+    for (let i = idxHeader; i < idxHeader + 5 && i < fim; i++) colunas.push(linhas[i]);
+    const N = colunas.length;
+    const inicioDados = idxHeader + N;
+    const dados = linhas.slice(inicioDados, fim);
+    if (dados.length === 0) return [];
+
+    // Identifica indices das colunas
+    const idxCpf = colunas.findIndex(c => /CPF/i.test(c));
+    const idxNome = colunas.findIndex(c => /NOME/i.test(c));
+    const idxPart = colunas.findIndex(c => /PARTICIPA/i.test(c));
+    const idxIdade = colunas.findIndex(c => /IDADE/i.test(c));
+
+    // Heuristica: cada socio tem ate N celulas, mas SOLICITANTE pode vir vazio (somido).
+    // Detectamos inicio de cada socio por padrao de CPF (XXX.XXX.XXX-XX)
+    const cpfRegex = /^\d{3}\.\d{3}\.\d{3}-\d{2}$/;
+    const idxsCpf = [];
+    for (let i = 0; i < dados.length; i++) if (cpfRegex.test(dados[i])) idxsCpf.push(i);
+
+    const socios = [];
+    for (let i = 0; i < idxsCpf.length; i++) {
+      const ini = idxsCpf[i];
+      const fimS = i + 1 < idxsCpf.length ? idxsCpf[i + 1] : dados.length;
+      const cells = dados.slice(ini, fimS);
+      const cpf = cells[0];
+      const nome = cells[1] || null;
+      let participacao = null, idade = null;
+      for (const c of cells.slice(2)) {
+        if (/%/.test(c)) {
+          const m = c.match(/(\d+(?:[.,]\d+)?)/);
+          if (m) participacao = parseFloat(m[1].replace(',', '.'));
+        } else if (/^\d{1,3}$/.test(c)) {
+          const n = parseInt(c, 10);
+          if (n >= 0 && n <= 120) idade = n;
+        }
+      }
+      socios.push({ cpf, nome, participacao, idade });
+    }
+    return socios;
+  }
+
   function extrairSerasa() {
     const pj = qs('[data-testid="ContainerWidget_containerSerasaPJ--0"]');
     const socios = qs('[data-testid="ContainerWidget_containerSerasaSocios--0"]');
@@ -448,6 +503,7 @@
     const scr = extrairSCR();
     const serasa = extrairSerasa();
     const empresasRelacionadas = extrairEmpresasRelacionadas();
+    const socios = extrairSocios();
     return {
       empresa: {
         nome: header.nome,
@@ -467,6 +523,7 @@
       scr,
       serasa,
       empresasRelacionadas,
+      socios,
     };
   }
 
@@ -845,6 +902,32 @@
     if (anos != null) {
       const sufixo = maturidade ? ` (${maturidade})` : '';
       lines.push(`-> ${anos} ano${anos === 1 ? '' : 's'} de atividade${sufixo}.`);
+    }
+    // Sócios: cita idade + participacao. Se 1 socio, formato curto. Se varios, lista.
+    const socios = dados.socios || [];
+    if (socios.length === 1) {
+      const s0 = socios[0];
+      const partes = [];
+      if (s0.nome) partes.push(s0.nome);
+      if (s0.idade != null) partes.push(`${s0.idade} anos`);
+      if (s0.participacao != null) partes.push(`${s0.participacao.toString().replace('.', ',')}%`);
+      if (partes.length) lines.push(`-> Sócio: ${partes.join(', ')}.`);
+      // Contexto socio+empresa (feedback da analista)
+      if (s0.idade != null && anos != null) {
+        const socioJovem = s0.idade < 35;
+        const empresaNova = anos < 5;
+        if (socioJovem && empresaNova) lines.push('-> Contexto: sócio jovem + empresa nova (risco elevado pela inexperiência combinada).');
+        else if (!socioJovem && !empresaNova) lines.push('-> Contexto: sócio maduro + empresa consolidada (perfil estável).');
+        else if (socioJovem && !empresaNova) lines.push('-> Contexto: sócio jovem em empresa consolidada (sucessão ou nova gestão).');
+        else if (!socioJovem && empresaNova) lines.push('-> Contexto: sócio maduro em empresa nova (experiência traz mitigação).');
+      }
+    } else if (socios.length > 1) {
+      for (const s of socios) {
+        const partes = [s.nome || s.cpf];
+        if (s.idade != null) partes.push(`${s.idade}a`);
+        if (s.participacao != null) partes.push(`${s.participacao.toString().replace('.', ',')}%`);
+        lines.push(`-> Sócio: ${partes.join(', ')}.`);
+      }
     }
     lines.push('-> [Análise de fachada: pendente]');
 
