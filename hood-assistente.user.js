@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hood Assistente de Concessao
 // @namespace    https://github.com/max-juan/hood-userscript
-// @version      0.4.5
+// @version      0.4.6
 // @description  Extrai dados do Retool da Mesa de Credito, calcula multiplicadores e gera parecer padronizado
 // @author       Max (Robbin)
 // @match        https://robbin.retool.com/*
@@ -711,6 +711,55 @@
     return `-> ${label}: ${partes.join(', ')}`;
   }
 
+  // Calcula tempo da empresa em anos a partir da string "DD/MM/AAAA"
+  function tempoEmpresaAnos(dataFundacao) {
+    if (!dataFundacao) return null;
+    const m = dataFundacao.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+    if (!m) return null;
+    const fund = new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]));
+    const hoje = new Date();
+    const anos = (hoje - fund) / (365.25 * 24 * 3600 * 1000);
+    return anos > 0 ? Math.floor(anos) : null;
+  }
+
+  // Heuristica simples de maturidade (acordada com Max em 2026-05-19)
+  // <2 anos = nova, 2-5 = em crescimento, 5+ = consolidada
+  function statusMaturidade(anos) {
+    if (anos == null) return null;
+    if (anos < 2) return 'empresa nova';
+    if (anos < 5) return 'em crescimento';
+    return 'consolidada';
+  }
+
+  // Traducao de cluster (generico - cada ancora pode ter nomenclatura propria depois)
+  const CLUSTER_NOMES = {
+    0: 'Excelente',
+    1: 'Muito Bom',
+    2: 'Bom',
+    3: 'Regular',
+  };
+  function traduzirCluster(cluster) {
+    const n = parseInt(cluster, 10);
+    if (isNaN(n)) return null;
+    return CLUSTER_NOMES[n] || null;
+  }
+
+  // Classifica probabilidade de inadimplencia em linguagem
+  // Faixas: <2% baixo, 2-5% moderado, 5-10% elevado, >10% alto
+  function classificarInadimplencia(pctStr) {
+    if (!pctStr) return null;
+    const m = pctStr.toString().match(/(\d+(?:[.,]\d+)?)/);
+    if (!m) return null;
+    const pct = parseFloat(m[1].replace(',', '.'));
+    if (isNaN(pct)) return null;
+    let categoria;
+    if (pct < 2) categoria = 'baixo risco';
+    else if (pct < 5) categoria = 'risco moderado';
+    else if (pct < 10) categoria = 'risco elevado';
+    else categoria = 'risco alto';
+    return { pct, categoria, formatado: `${pct.toString().replace('.', ',')}% — ${categoria}` };
+  }
+
   // Aplica redutor de 65% sobre um limite (vem na decisao final)
   function aplicarRedutor(limite, redutor = 0.65) {
     if (limite == null) return null;
@@ -738,8 +787,13 @@
 
     lines.push('');
     lines.push('Empresa');
-    if (e.dataFundacao) lines.push(`-> Fundada em ${e.dataFundacao}`);
-    lines.push('-> [Analise de fachada: pendente]');
+    const anos = tempoEmpresaAnos(e.dataFundacao);
+    const maturidade = statusMaturidade(anos);
+    if (anos != null) {
+      const sufixo = maturidade ? ` (${maturidade})` : '';
+      lines.push(`-> ${anos} ano${anos === 1 ? '' : 's'} de atividade${sufixo}.`);
+    }
+    lines.push('-> [Análise de fachada: pendente]');
 
     lines.push('');
     lines.push('SCR');
@@ -756,7 +810,13 @@
       if (seSocios?.score != null) partes.push(`Score PF ${seSocios.score}`);
       lines.push(`-> ${partes.join(' e ')}.`);
     } else {
-      lines.push('-> Scores nao identificados.');
+      lines.push('-> Scores não identificados.');
+    }
+    // Probabilidade de inadimplencia (vem em sePJ.mensagem: "PROBABILIDADE DE INADIMPLENCIA: 3,73%")
+    const probMatch = sePJ?.mensagem?.match(/INADIMPL[EÊ]NCIA[:\s]*([\d.,]+%?)/i);
+    if (probMatch) {
+      const cl = classificarInadimplencia(probMatch[1]);
+      if (cl) lines.push(`-> Inadimplência: ${cl.formatado}.`);
     }
     const fmtApontamento = (ap, totalDebitos) => {
       const tipo = ap.tipo || 'pendência';
@@ -779,10 +839,13 @@
     if (p.faturamentoSerasa) lines.push(`-> Fat anual de ${p.faturamentoSerasa}.`);
 
     lines.push('');
-    lines.push('Decisao:');
+    lines.push('Decisão:');
     if (sugestao?.limiteSugerido?.limiteFinal != null) {
       const limFinal = sugestao.limiteSugerido.limiteFinal;
-      lines.push(`${fmtK(limFinal)}. Perfil ${sugestao.perfilTomador.tipo.replace('_', ' ')}. Bloco ${sugestao.blocoUsado?.tipo}. Apos redutor de ${Math.round((sugestao.redutorGlobal || 0.65)*100)}%.`);
+      const clusterNum = dados.motor?.cluster;
+      const clusterNome = traduzirCluster(clusterNum);
+      const clusterStr = clusterNome ? ` Cluster ${clusterNum} (${clusterNome}).` : '';
+      lines.push(`${fmtK(limFinal)}.${clusterStr} Perfil ${sugestao.perfilTomador.tipo.replace('_', ' ')}. Bloco ${sugestao.blocoUsado?.tipo}. Após redutor de ${Math.round((sugestao.redutorGlobal || 0.65)*100)}%.`);
     } else {
       lines.push('[pendente - dados insuficientes para calculo]');
     }
@@ -888,12 +951,20 @@
     push('Empresa', dados.empresa.nome);
     push('CNPJ', dados.empresa.cnpj);
     push('Âncora', dados.empresa.ancora, 'highlight');
-    push('Cluster', motor.cluster);
+    const clusterNome = traduzirCluster(motor.cluster);
+    push('Cluster', clusterNome ? `${motor.cluster} - ${clusterNome}` : motor.cluster);
     const motorCls = /aprov/i.test(motor.resultado || '') ? 'green' : (/reprov/i.test(motor.resultado || '') ? 'red' : '');
     push('Motor', motor.resultado, motorCls);
     push('Capital Social', dados.empresa.capitalSocial);
     push('Regime Tributário', dados.empresa.regimeTributario);
-    push('Fundação', dados.empresa.dataFundacao);
+    const anosEmp = tempoEmpresaAnos(dados.empresa.dataFundacao);
+    const matEmp = statusMaturidade(anosEmp);
+    if (anosEmp != null) {
+      const v = `${anosEmp} ano${anosEmp === 1 ? '' : 's'}${matEmp ? ` (${matEmp})` : ''}`;
+      push('Tempo de atividade', v);
+    } else {
+      push('Fundação', dados.empresa.dataFundacao);
+    }
     push('CNAE', dados.empresa.cnae);
     if (clientePlanilha?.encontrado) {
       push('Cliente desde', clientePlanilha.dataPrimeiraCompra);
