@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hood Assistente de Concessao
 // @namespace    https://github.com/max-juan/hood-userscript
-// @version      0.4.2
+// @version      0.4.3
 // @description  Extrai dados do Retool da Mesa de Credito, calcula multiplicadores e gera parecer padronizado
 // @author       Max (Robbin)
 // @match        https://robbin.retool.com/*
@@ -735,7 +735,8 @@
     if (v == null) return '-';
     if (v >= 1_000_000) return `${(v/1_000_000).toFixed(1)}mm`;
     if (v >= 1_000) return `${Math.round(v/1000)}k`;
-    return `R$ ${v}`;
+    // Valor abaixo de 1000: formata em pt-BR com 2 casas decimais
+    return `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }
 
   // ==========================================================
