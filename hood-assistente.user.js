@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hood Assistente de Concessao
 // @namespace    https://github.com/max-juan/hood-userscript
-// @version      0.4.0
+// @version      0.4.1
 // @description  Extrai dados do Retool da Mesa de Credito, calcula multiplicadores e gera parecer padronizado
 // @author       Max (Robbin)
 // @match        https://robbin.retool.com/*
@@ -27,7 +27,7 @@
   // BACKEND_URL = URL HTTPS publica do tunel (Cloudflare). Em dev fica __BACKEND_URL__
   // BACKEND_TOKEN = token de auth do backend. Substituido no commit publico.
   // Se algum dos dois ainda for o placeholder __XXX__, cai pra modo local (localhost:3000)
-  const BACKEND_URL = 'https://ebooks-income-expects-performance.trycloudflare.com';
+  const BACKEND_URL = 'https://indicates-ballot-emacs-madonna.trycloudflare.com';
   const BACKEND_TOKEN = '5f471a3b27c646d3d6110eebabdbe367d79e3b175cb7155e91c3d0a492f70baa';
 
   const TEM_PLACEHOLDER = /^__.*__$/.test(BACKEND_URL) || /^__.*__$/.test(BACKEND_TOKEN);
@@ -35,6 +35,8 @@
   // Em modo placeholder/local, le o token do GM_getValue (configurado UMA vez pelo Max via prompt)
   const TOKEN = TEM_PLACEHOLDER ? (typeof GM_getValue === 'function' ? GM_getValue('hood_local_token', '') : '') : BACKEND_TOKEN;
   const LOG_PREFIX = '[Hood]';
+
+  const ROBBIN_LOGO_B64 = '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';
 
   function log(...args) { console.log(LOG_PREFIX, ...args); }
 
@@ -367,16 +369,24 @@
     style.textContent = `
       /* FAB ---------------------------------------------- */
       #${FAB_ID} {
-        position: fixed; bottom: 30px; right: 30px;
-        width: 56px; height: 56px; border-radius: 50%;
-        background: linear-gradient(135deg, #f97316, #ea580c); color: white;
-        border: none; font-size: 24px; font-weight: 700; cursor: pointer;
-        box-shadow: 0 4px 15px rgba(249, 115, 22, 0.4); z-index: 99999;
+        position: fixed !important; bottom: 30px !important; right: 80px !important;
+        width: 64px; height: 64px; border-radius: 50%;
+        background: #111827;
+        border: none; cursor: pointer;
+        z-index: 2147483647 !important;
+        box-shadow: 0 4px 15px rgba(31, 41, 55, 0.4);
         display: flex; align-items: center; justify-content: center;
         transition: transform .2s, box-shadow .2s;
         font-family: 'Segoe UI', sans-serif;
+        padding: 0; overflow: hidden;
+        pointer-events: auto;
       }
-      #${FAB_ID}:hover { transform: scale(1.1); box-shadow: 0 6px 20px rgba(249,115,22,.5); }
+      #${FAB_ID} img {
+        width: 100%; height: 100%; object-fit: cover; display: block;
+        pointer-events: none;
+      }
+      #${FAB_ID}:hover { transform: scale(1.1); box-shadow: 0 6px 20px rgba(31,41,55,.55); }
+      #${FAB_ID}:focus { outline: none; }
       #${FAB_ID}.hidden { display: none; }
 
       /* PANEL -------------------------------------------- */
@@ -389,11 +399,11 @@
       }
       #${PANEL_ID}.open { transform: translateX(0); }
       .hood-header {
-        background: linear-gradient(135deg, #f97316, #ea580c); color: white;
+        background: linear-gradient(135deg, #1f2937, #111827); color: white;
         padding: 16px 20px; display: flex; align-items: center; justify-content: space-between;
         flex-shrink: 0;
       }
-      .hood-header h2 { font-size: 16px; margin: 0; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+      .hood-header h2 { font-size: 16px; margin: 0; font-weight: 600; color: white; display: flex; align-items: center; gap: 8px; }
       .hood-close {
         background: rgba(255,255,255,.2); border: none; color: white;
         width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;
@@ -437,7 +447,7 @@
       .hood-row:last-child { border-bottom: none; }
       .hood-row .l { color: #6b7280; }
       .hood-row .v { color: #111; font-weight: 600; max-width: 60%; text-align: right; word-break: break-word; }
-      .hood-row .v.highlight { color: #f97316; }
+      .hood-row .v.highlight { color: #1f2937; }
       .hood-row .v.green { color: #16a34a; }
       .hood-row .v.red { color: #dc2626; }
 
@@ -456,21 +466,21 @@
         font-size: 18px; font-weight: 700; color: #111; margin: 4px 0 2px;
       }
       .hood-mult-calc { font-size: 10px; color: #6b7280; }
-      .hood-mult-item.best { border-color: #f97316; background: #fff7ed; }
-      .hood-mult-item.best .hood-mult-value { color: #f97316; }
+      .hood-mult-item.best { border-color: #1f2937; background: #f3f4f6; }
+      .hood-mult-item.best .hood-mult-value { color: #1f2937; }
 
       /* Decisao box ------------------------------------- */
       .hood-decision {
-        background: #fff7ed; border: 1px solid #fdba74; border-radius: 8px;
+        background: #f3f4f6; border: 1px solid #9ca3af; border-radius: 8px;
         padding: 14px; text-align: center;
       }
-      .hood-decision-label { font-size: 11px; color: #9a3412; text-transform: uppercase; letter-spacing: .5px; }
-      .hood-decision-value { font-size: 26px; font-weight: 700; color: #ea580c; margin: 4px 0; }
-      .hood-decision-meta { font-size: 11px; color: #9a3412; }
+      .hood-decision-label { font-size: 11px; color: #4b5563; text-transform: uppercase; letter-spacing: .5px; }
+      .hood-decision-value { font-size: 26px; font-weight: 700; color: #111827; margin: 4px 0; }
+      .hood-decision-meta { font-size: 11px; color: #4b5563; }
 
       /* Parecer ------------------------------------------ */
       .hood-parecer {
-        background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px;
+        background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px;
         padding: 14px; font-size: 12px; line-height: 1.6;
         white-space: pre-wrap; color: #333; font-family: 'Consolas', monospace;
         max-height: 240px; overflow-y: auto;
@@ -482,17 +492,17 @@
         display: flex; flex-direction: column; gap: 8px; flex-shrink: 0;
       }
       .hood-btn {
-        background: linear-gradient(135deg, #f97316, #ea580c); color: white;
+        background: linear-gradient(135deg, #1f2937, #111827); color: white;
         border: none; padding: 12px; border-radius: 8px;
         font-size: 14px; font-weight: 600; cursor: pointer;
       }
       .hood-btn:hover { opacity: .9; }
       .hood-btn-sec {
-        background: white; color: #f97316; border: 2px solid #f97316;
+        background: white; color: #1f2937; border: 2px solid #1f2937;
         padding: 10px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;
         flex: 1;
       }
-      .hood-btn-sec:hover { background: #fff7ed; }
+      .hood-btn-sec:hover { background: #f3f4f6; }
       .hood-btn-row { display: flex; gap: 8px; }
 
       /* Loading / msgs --------------------------------- */
@@ -502,7 +512,7 @@
       .hood-loading::before {
         content: ''; display: inline-block;
         width: 16px; height: 16px; border-radius: 50%;
-        border: 2px solid #f97316; border-top-color: transparent;
+        border: 2px solid #1f2937; border-top-color: transparent;
         animation: hoodSpin 0.8s linear infinite;
         vertical-align: middle; margin-right: 8px;
       }
@@ -515,7 +525,10 @@
     if (document.getElementById(FAB_ID)) return;
     const btn = document.createElement('button');
     btn.id = FAB_ID;
-    btn.textContent = 'R';
+    const img = document.createElement('img');
+    img.src = 'data:image/jpeg;base64,' + ROBBIN_LOGO_B64;
+    img.alt = 'Robbin';
+    btn.appendChild(img);
     btn.title = 'Hood Assistente de Concessao';
     btn.onclick = togglePanel;
     document.body.appendChild(btn);
@@ -527,7 +540,7 @@
     panel.id = PANEL_ID;
     panel.innerHTML = `
       <div class="hood-header">
-        <h2>🔥 Hood Credit Analyst</h2>
+        <h2>Hood Credit Analyst</h2>
         <button class="hood-close" title="Fechar">✕</button>
       </div>
       <div class="hood-body" id="hood-body">
