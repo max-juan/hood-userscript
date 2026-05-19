@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hood Assistente de Concessao
 // @namespace    https://github.com/max-juan/hood-userscript
-// @version      0.4.4
+// @version      0.4.5
 // @description  Extrai dados do Retool da Mesa de Credito, calcula multiplicadores e gera parecer padronizado
 // @author       Max (Robbin)
 // @match        https://robbin.retool.com/*
@@ -103,8 +103,9 @@
     if (!texto.trim()) return null;
     const linhas = texto.split('\n').map(s => s.trim()).filter(Boolean);
 
-    const pegaCampo = (label) => {
-      const re = new RegExp(`${label}\\s*[:\\-]?\\s*(.+)`, 'i');
+    // pegaCampo: procura linha que COMECA com label (evita match parcial)
+    const pegaCampo = (labelRegex) => {
+      const re = new RegExp(`^${labelRegex}\\s*[:\\-]\\s*(.+)`, 'i');
       for (const l of linhas) {
         const m = l.match(re);
         if (m && m[1] && m[1].trim() !== '-') return m[1].trim();
@@ -124,28 +125,57 @@
       const m = s.match(/\d+/);
       return m ? parseInt(m[0], 10) : null;
     })();
+    // "Débitos: R$ 67,80" - pegaCampo com label exato evita pegar "QTD. Debitos"
     const debitos = pegaCampo('D[eé]bitos');
     const mensagem = pegaCampo('Mensagem');
 
-    // Apontamentos: depois do header "TIPO ... DESCRICAO" ate "N result(s)"
+    // Apontamentos: o Retool quebra cada celula numa linha do innerText.
+    // Estrutura observada:
+    //   "TIPO" "DATA" "ORIGEM" "VALOR" "DESCRICAO"   <- header (5 colunas)
+    //   "Pendencia Financeira" "20/06/2025" "" "67,8" "Credor SEM PARAR"  <- linha 1
+    //   "N results"
+    // Como celulas vazias podem ser omitidas, agrupamos heuristicamente: cada apontamento
+    // comeca quando encontramos uma data dd/mm/aaaa OU um valor numerico isolado.
     const apontamentos = [];
-    const idxHeader = linhas.findIndex(l => /^TIPO\b/i.test(l));
+    const idxHeaderTipo = linhas.findIndex(l => /^TIPO$/i.test(l));
     const idxFim = linhas.findIndex(l => /^\d+\s*results?$/i.test(l));
-    if (idxHeader !== -1 && idxFim !== -1 && idxFim > idxHeader) {
-      // O header eh uma unica linha com varias colunas separadas por espacos.
-      // As linhas seguintes ate idxFim contem os apontamentos. Cada apontamento eh uma linha so
-      // (ou as colunas vem espacadas). Tentamos parse linha por linha.
-      for (let i = idxHeader + 1; i < idxFim; i++) {
-        const linha = linhas[i];
-        if (!linha) continue;
-        // Heuristica: data dd/mm/yyyy, valor numerico
-        const dataMatch = linha.match(/\d{2}\/\d{2}\/\d{4}/);
-        const valorMatch = linha.match(/\d+[.,]?\d*/g);
-        apontamentos.push({
-          raw: linha,
-          data: dataMatch ? dataMatch[0] : null,
-          valor: valorMatch ? valorMatch[valorMatch.length - 1] : null,
-        });
+
+    if (idxHeaderTipo !== -1 && idxFim !== -1 && idxFim > idxHeaderTipo) {
+      // Coleta nomes das colunas do header (linhas em UPPERCASE consecutivas a partir de TIPO)
+      const colunas = [];
+      let i = idxHeaderTipo;
+      while (i < idxFim && /^[A-ZÇÃÕÁÉÍÓÚÂÊÔ\s.]+$/i.test(linhas[i]) && linhas[i] === linhas[i].toUpperCase() && linhas[i].length < 30) {
+        colunas.push(linhas[i]);
+        i++;
+      }
+      const N = colunas.length || 5;
+
+      // Linhas restantes ate idxFim sao as celulas. qtdDebitos linhas no total.
+      const dados = linhas.slice(i, idxFim);
+      const total = qtdDebitos || Math.floor(dados.length / N);
+
+      // Tenta agrupar de N em N (caso comum quando todas colunas tem valor)
+      if (total > 0 && dados.length >= total * N) {
+        for (let k = 0; k < total; k++) {
+          const cells = dados.slice(k * N, (k + 1) * N);
+          const tipo = cells[colunas.findIndex(c => /TIPO/i.test(c))] || cells[0] || '';
+          const data = cells.find(c => /\d{2}\/\d{2}\/\d{4}/.test(c)) || null;
+          const valorIdx = colunas.findIndex(c => /VALOR/i.test(c));
+          const valor = valorIdx >= 0 ? cells[valorIdx] : null;
+          const descIdx = colunas.findIndex(c => /DESCRI/i.test(c));
+          const descricao = descIdx >= 0 ? cells[descIdx] : null;
+          apontamentos.push({ tipo, data, valor, descricao, cells });
+        }
+      } else if (total > 0) {
+        // Fallback: usa heuristica de "data dd/mm/aaaa marca inicio de apontamento"
+        let buffer = [];
+        for (const cell of dados) {
+          buffer.push(cell);
+          if (/\d{2}\/\d{2}\/\d{4}/.test(cell) && buffer.length >= 2) {
+            // proximos campos ate proxima data ou fim
+          }
+        }
+        apontamentos.push({ tipo: buffer[0] || '', data: buffer.find(c => /\d{2}\/\d{2}\/\d{4}/.test(c)) || null, valor: null, descricao: null, cells: buffer });
       }
     }
 
@@ -728,19 +758,21 @@
     } else {
       lines.push('-> Scores nao identificados.');
     }
+    const fmtApontamento = (ap, totalDebitos) => {
+      const tipo = ap.tipo || 'pendência';
+      const valor = ap.valor ? `R$ ${ap.valor}` : (totalDebitos || '');
+      const credor = ap.descricao ? ` (${ap.descricao}${ap.data ? `, ${ap.data}` : ''})` : (ap.data ? ` (${ap.data})` : '');
+      return `${tipo}${valor ? ` de ${valor}` : ''}${credor}`;
+    };
     // Apontamentos: PJ
     if (sePJ?.qtdDebitos > 0 && sePJ.apontamentos?.length > 0) {
-      const ap = sePJ.apontamentos[0];
-      const valorFmt = sePJ.debitos || (ap.valor ? `R$ ${ap.valor}` : '');
-      lines.push(`-> Apontamento PJ: ${ap.raw.split(/\s{2,}/)[0] || 'pendencia'} de ${valorFmt}${ap.data ? ` (${ap.data})` : ''}.`);
+      lines.push(`-> Apontamento PJ: ${fmtApontamento(sePJ.apontamentos[0], sePJ.debitos)}.`);
     } else if (sePJ?.qtdDebitos === 0) {
       lines.push('-> Sem apontamentos PJ.');
     }
     // Apontamentos: Socios
     if (seSocios?.qtdDebitos > 0 && seSocios.apontamentos?.length > 0) {
-      const ap = seSocios.apontamentos[0];
-      const valorFmt = seSocios.debitos || (ap.valor ? `R$ ${ap.valor}` : '');
-      lines.push(`-> Apontamento PF: ${ap.raw.split(/\s{2,}/)[0] || 'pendencia'} de ${valorFmt}${ap.data ? ` (${ap.data})` : ''}.`);
+      lines.push(`-> Apontamento PF: ${fmtApontamento(seSocios.apontamentos[0], seSocios.debitos)}.`);
     } else if (seSocios?.qtdDebitos === 0) {
       lines.push('-> Sem apontamentos PF.');
     }
