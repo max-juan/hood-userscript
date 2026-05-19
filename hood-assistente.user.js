@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hood Assistente de Concessao
 // @namespace    https://github.com/max-juan/hood-userscript
-// @version      0.4.3
+// @version      0.4.4
 // @description  Extrai dados do Retool da Mesa de Credito, calcula multiplicadores e gera parecer padronizado
 // @author       Max (Robbin)
 // @match        https://robbin.retool.com/*
@@ -91,6 +91,73 @@
       limiteSugerido: pegaLinha('Limite Sugerido'),
       origemLimite: pegaLinha('Origem do Limite'),
       limitePotencial: pegaLinha('Limite Potencial'),
+    };
+  }
+
+  // Extrai score + apontamentos do Serasa (PJ ou Socios)
+  // Layout observado:
+  //   "Serasa PJ\nScore: 235\nData Base: 19/05/26\nQTD. Debitos: 1\nDebitos: R$ 67,80\nMensagem: ...\nTIPO ... DESCRICAO\n<pendencia 1>\n..."
+  function parseSerasaBloco(el) {
+    if (!el) return null;
+    const texto = el.innerText || '';
+    if (!texto.trim()) return null;
+    const linhas = texto.split('\n').map(s => s.trim()).filter(Boolean);
+
+    const pegaCampo = (label) => {
+      const re = new RegExp(`${label}\\s*[:\\-]?\\s*(.+)`, 'i');
+      for (const l of linhas) {
+        const m = l.match(re);
+        if (m && m[1] && m[1].trim() !== '-') return m[1].trim();
+      }
+      return null;
+    };
+
+    const score = (() => {
+      const s = pegaCampo('Score');
+      if (!s) return null;
+      const m = s.match(/\d+/);
+      return m ? parseInt(m[0], 10) : null;
+    })();
+    const qtdDebitos = (() => {
+      const s = pegaCampo('QTD\\.?\\s*D[eé]bitos');
+      if (!s) return null;
+      const m = s.match(/\d+/);
+      return m ? parseInt(m[0], 10) : null;
+    })();
+    const debitos = pegaCampo('D[eé]bitos');
+    const mensagem = pegaCampo('Mensagem');
+
+    // Apontamentos: depois do header "TIPO ... DESCRICAO" ate "N result(s)"
+    const apontamentos = [];
+    const idxHeader = linhas.findIndex(l => /^TIPO\b/i.test(l));
+    const idxFim = linhas.findIndex(l => /^\d+\s*results?$/i.test(l));
+    if (idxHeader !== -1 && idxFim !== -1 && idxFim > idxHeader) {
+      // O header eh uma unica linha com varias colunas separadas por espacos.
+      // As linhas seguintes ate idxFim contem os apontamentos. Cada apontamento eh uma linha so
+      // (ou as colunas vem espacadas). Tentamos parse linha por linha.
+      for (let i = idxHeader + 1; i < idxFim; i++) {
+        const linha = linhas[i];
+        if (!linha) continue;
+        // Heuristica: data dd/mm/yyyy, valor numerico
+        const dataMatch = linha.match(/\d{2}\/\d{2}\/\d{4}/);
+        const valorMatch = linha.match(/\d+[.,]?\d*/g);
+        apontamentos.push({
+          raw: linha,
+          data: dataMatch ? dataMatch[0] : null,
+          valor: valorMatch ? valorMatch[valorMatch.length - 1] : null,
+        });
+      }
+    }
+
+    return { score, qtdDebitos, debitos, mensagem, apontamentos, raw: texto };
+  }
+
+  function extrairSerasa() {
+    const pj = qs('[data-testid="ContainerWidget_containerSerasaPJ--0"]');
+    const socios = qs('[data-testid="ContainerWidget_containerSerasaSocios--0"]');
+    return {
+      pj: parseSerasaBloco(pj),
+      socios: parseSerasaBloco(socios),
     };
   }
 
@@ -298,6 +365,7 @@
     const motor = extrairResumoMotor();
     const parceiro = extrairDadosParceiro();
     const scr = extrairSCR();
+    const serasa = extrairSerasa();
     return {
       empresa: {
         nome: header.nome,
@@ -315,6 +383,7 @@
       motor,
       parceiro,
       scr,
+      serasa,
     };
   }
 
@@ -649,7 +718,32 @@
 
     lines.push('');
     lines.push('Serasa');
-    lines.push('-> [scores nao extraidos ainda]');
+    const sePJ = dados.serasa?.pj;
+    const seSocios = dados.serasa?.socios;
+    if (sePJ?.score != null || seSocios?.score != null) {
+      const partes = [];
+      if (sePJ?.score != null) partes.push(`Score PJ ${sePJ.score}`);
+      if (seSocios?.score != null) partes.push(`Score PF ${seSocios.score}`);
+      lines.push(`-> ${partes.join(' e ')}.`);
+    } else {
+      lines.push('-> Scores nao identificados.');
+    }
+    // Apontamentos: PJ
+    if (sePJ?.qtdDebitos > 0 && sePJ.apontamentos?.length > 0) {
+      const ap = sePJ.apontamentos[0];
+      const valorFmt = sePJ.debitos || (ap.valor ? `R$ ${ap.valor}` : '');
+      lines.push(`-> Apontamento PJ: ${ap.raw.split(/\s{2,}/)[0] || 'pendencia'} de ${valorFmt}${ap.data ? ` (${ap.data})` : ''}.`);
+    } else if (sePJ?.qtdDebitos === 0) {
+      lines.push('-> Sem apontamentos PJ.');
+    }
+    // Apontamentos: Socios
+    if (seSocios?.qtdDebitos > 0 && seSocios.apontamentos?.length > 0) {
+      const ap = seSocios.apontamentos[0];
+      const valorFmt = seSocios.debitos || (ap.valor ? `R$ ${ap.valor}` : '');
+      lines.push(`-> Apontamento PF: ${ap.raw.split(/\s{2,}/)[0] || 'pendencia'} de ${valorFmt}${ap.data ? ` (${ap.data})` : ''}.`);
+    } else if (seSocios?.qtdDebitos === 0) {
+      lines.push('-> Sem apontamentos PF.');
+    }
     if (p.faturamentoSerasa) lines.push(`-> Fat anual de ${p.faturamentoSerasa}.`);
 
     lines.push('');
