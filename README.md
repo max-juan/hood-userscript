@@ -13,7 +13,7 @@ Userscript do Tampermonkey que ajuda a mesa de credito da Robbin a gerar parecer
 
    O Tampermonkey vai abrir uma aba pedindo confirmacao. Clique em **Instalar**.
 
-3. Pronto! Acesse uma analise de credito no Retool e o botao laranja **R** aparece no canto inferior direito.
+3. Pronto! Acesse uma analise de credito no Retool e o botao preto com o logo da Robbin aparece no canto inferior direito.
 
 ## Atualizacoes automaticas
 
