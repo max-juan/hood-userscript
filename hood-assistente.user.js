@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hood Assistente de Concessao
 // @namespace    https://github.com/max-juan/hood-userscript
-// @version      0.4.6
+// @version      0.4.7
 // @description  Extrai dados do Retool da Mesa de Credito, calcula multiplicadores e gera parecer padronizado
 // @author       Max (Robbin)
 // @match        https://robbin.retool.com/*
@@ -180,6 +180,57 @@
     }
 
     return { score, qtdDebitos, debitos, mensagem, apontamentos, raw: texto };
+  }
+
+  // Extrai a tabela de Empresas Relacionadas. Layout (innerText, uma celula por linha):
+  //   "Empresas Relacionadas" "Socio:" "CNPJ" "RAZAO SOCIAL" "NOME FANTASIA" "PORCENTAGEM" "STATUS"
+  //   <cnpj> <razao> <nomeFantasia> <pct> <status>  ... "N results"
+  // Celulas vazias (ex: porcentagem ausente) somem do innerText, entao precisamos detectar
+  // o inicio de cada linha pelo padrao de CNPJ (XX.XXX.XXX/XXXX-XX)
+  function extrairEmpresasRelacionadas() {
+    const el = qs('[data-testid="ContainerWidget_containerRelatedCompanies--0"]');
+    if (!el) return [];
+    const texto = el.innerText || '';
+    const linhas = texto.split('\n').map(s => s.trim()).filter(Boolean);
+    const idxResults = linhas.findIndex(l => /^\d+\s*results?$/i.test(l));
+    const fim = idxResults !== -1 ? idxResults : linhas.length;
+
+    // Acha o indice da primeira linha que parece CNPJ (inicio da primeira linha de dados)
+    const cnpjRegex = /^\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}$/;
+    const idxsCNPJ = [];
+    for (let i = 0; i < fim; i++) {
+      if (cnpjRegex.test(linhas[i])) idxsCNPJ.push(i);
+    }
+    if (idxsCNPJ.length === 0) return [];
+
+    const STATUS_TOKENS = new Set(['ATIVA', 'BAIXADA', 'SUSPENSA', 'INAPTA', 'NULA']);
+    const empresas = [];
+    for (let i = 0; i < idxsCNPJ.length; i++) {
+      const inicio = idxsCNPJ[i];
+      const fimLinha = i + 1 < idxsCNPJ.length ? idxsCNPJ[i + 1] : fim;
+      const celulas = linhas.slice(inicio, fimLinha);
+      const cnpj = celulas[0];
+      // Status: tipicamente ultima celula que esteja no set conhecido
+      let status = null;
+      for (let k = celulas.length - 1; k >= 1; k--) {
+        if (STATUS_TOKENS.has(celulas[k].toUpperCase())) { status = celulas[k]; break; }
+      }
+      // Porcentagem: celula que contem '%'
+      let pctStr = null, pctNum = null;
+      for (const c of celulas) {
+        if (/%/.test(c)) {
+          pctStr = c;
+          const m = c.match(/(\d+(?:[.,]\d+)?)/);
+          if (m) pctNum = parseFloat(m[1].replace(',', '.'));
+          break;
+        }
+      }
+      // razaoSocial = celula 1 (apos cnpj). nomeFantasia = celula 2 se nao for status/pct.
+      const razaoSocial = celulas[1] || null;
+      const nomeFantasia = (celulas[2] && celulas[2] !== status && !/%/.test(celulas[2])) ? celulas[2] : null;
+      empresas.push({ cnpj, razaoSocial, nomeFantasia, porcentagem: pctNum, porcentagemStr: pctStr, status });
+    }
+    return empresas;
   }
 
   function extrairSerasa() {
@@ -396,6 +447,7 @@
     const parceiro = extrairDadosParceiro();
     const scr = extrairSCR();
     const serasa = extrairSerasa();
+    const empresasRelacionadas = extrairEmpresasRelacionadas();
     return {
       empresa: {
         nome: header.nome,
@@ -414,6 +466,7 @@
       parceiro,
       scr,
       serasa,
+      empresasRelacionadas,
     };
   }
 
@@ -795,10 +848,33 @@
     }
     lines.push('-> [Análise de fachada: pendente]');
 
+    // Empresas relacionadas: so cita as que tem % preenchido (participacao ativa do socio)
+    const relComPct = (dados.empresasRelacionadas || []).filter(r => r.porcentagem != null);
+    if (relComPct.length > 0) {
+      lines.push('');
+      lines.push('Empresas relacionadas');
+      for (const r of relComPct) {
+        const nome = r.nomeFantasia || r.razaoSocial || '';
+        const statusStr = r.status ? `, ${r.status.toLowerCase()}` : '';
+        lines.push(`-> ${nome} (${r.cnpj}) - ${r.porcentagemStr}${statusStr}`);
+      }
+    }
+
     lines.push('');
     lines.push('SCR');
     lines.push(formatarSCRLinha(s.pj, 'PJ'));
     lines.push(formatarSCRLinha(s.pf, 'PF'));
+    // Sinaliza comportamento PF baseado em utilizacao (100% - %SemUso)
+    // <20% utilizacao = conservador; 70-90% = pressao; >90% = pressao alta
+    if (s.pf && !s.pf.vazio && s.pf.pctSemUso != null) {
+      const util = 100 - s.pf.pctSemUso;
+      let comp = null;
+      if (util < 20) comp = 'comportamento conservador';
+      else if (util < 70) comp = 'utilização moderada';
+      else if (util < 90) comp = 'sinaliza pressão financeira';
+      else comp = 'pressão financeira alta';
+      lines.push(`-> Utilização PF: ${Math.round(util)}% do limite (${comp})`);
+    }
 
     lines.push('');
     lines.push('Serasa');
