@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hood Assistente de Concessao
 // @namespace    https://github.com/max-juan/hood-userscript
-// @version      0.4.30
+// @version      0.4.31
 // @description  Extrai dados do Retool da Mesa de Credito, calcula multiplicadores e gera parecer padronizado
 // @author       Max (Robbin)
 // @match        https://robbin.retool.com/*
@@ -27,7 +27,7 @@
   // BACKEND_URL = URL HTTPS publica do tunel (Cloudflare). Em dev fica __BACKEND_URL__
   // BACKEND_TOKEN = token de auth do backend. Substituido no commit publico.
   // Se algum dos dois ainda for o placeholder __XXX__, cai pra modo local (localhost:3000)
-  const BACKEND_URL = 'https://networks-bonds-knock-historical.trycloudflare.com';
+  const BACKEND_URL = 'https://states-collaboration-passenger-delhi.trycloudflare.com';
   const BACKEND_TOKEN = '5f471a3b27c646d3d6110eebabdbe367d79e3b175cb7155e91c3d0a492f70baa';
 
   const TEM_PLACEHOLDER = /^__.*__$/.test(BACKEND_URL) || /^__.*__$/.test(BACKEND_TOKEN);
